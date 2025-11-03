@@ -91,6 +91,199 @@ class BTree {
     if (!node->leaf) inorder(node->children[node->count], out);
   }
 
+  void rangeCollect(Node<TK>* node, TK begin, TK end, vector<TK>& out) {
+    if (!node) return;
+    int i = 0;
+    while (i < node->count && node->keys[i] < begin) i++;
+    for (int j = 0; j <= node->count; ++j) {
+      if (!node->leaf) {
+        if (j <= i) {
+          rangeCollect(node->children[j], begin, end, out);
+        } else {
+          rangeCollect(node->children[j], begin, end, out);
+        }
+      }
+      if (j < node->count) {
+        if (node->keys[j] >= begin && node->keys[j] <= end) out.push_back(node->keys[j]);
+      }
+    }
+  }
+
+  int findKey(Node<TK>* node, TK key) {
+    int idx = 0;
+    while (idx < node->count && node->keys[idx] < key) ++idx;
+    return idx;
+  }
+
+  TK getPredecessor(Node<TK>* node, int idx) {
+    Node<TK>* cur = node->children[idx];
+    while (!cur->leaf) cur = cur->children[cur->count];
+    return cur->keys[cur->count - 1];
+  }
+  TK getSuccessor(Node<TK>* node, int idx) {
+    Node<TK>* cur = node->children[idx + 1];
+    while (!cur->leaf) cur = cur->children[0];
+    return cur->keys[0];
+  }
+
+  void fill(Node<TK>* node, int idx) {
+    int minKeys = (int)ceil((double)M / 2.0) - 1;
+    if (idx != 0 && node->children[idx - 1]->count >= minKeys + 1) {
+      borrowFromPrev(node, idx);
+    } else if (idx != node->count && node->children[idx + 1]->count >= minKeys + 1) {
+      borrowFromNext(node, idx);
+    } else {
+      if (idx != node->count) {
+        merge(node, idx);
+      } else {
+        merge(node, idx - 1);
+      }
+    }
+  }
+
+  void borrowFromPrev(Node<TK>* node, int idx) {
+    Node<TK>* child = node->children[idx];
+    Node<TK>* sibling = node->children[idx - 1];
+    for (int i = child->count - 1; i >= 0; --i)
+      child->keys[i + 1] = child->keys[i];
+    if (!child->leaf) {
+      for (int i = child->count; i >= 0; --i)
+        child->children[i + 1] = child->children[i];
+    }
+    child->keys[0] = node->keys[idx - 1];
+    if (!child->leaf)
+      child->children[0] = sibling->children[sibling->count];
+    node->keys[idx - 1] = sibling->keys[sibling->count - 1];
+    child->count += 1;
+    sibling->count -= 1;
+  }
+
+  void borrowFromNext(Node<TK>* node, int idx) {
+    Node<TK>* child = node->children[idx];
+    Node<TK>* sibling = node->children[idx + 1];
+    child->keys[child->count] = node->keys[idx];
+    if (!child->leaf)
+      child->children[child->count + 1] = sibling->children[0];
+    node->keys[idx] = sibling->keys[0];
+    for (int i = 1; i < sibling->count; ++i)
+      sibling->keys[i - 1] = sibling->keys[i];
+    if (!sibling->leaf) {
+      for (int i = 1; i <= sibling->count; ++i)
+        sibling->children[i - 1] = sibling->children[i];
+    }
+    child->count += 1;
+    sibling->count -= 1;
+  }
+
+  void merge(Node<TK>* node, int idx) {
+    Node<TK>* child = node->children[idx];
+    Node<TK>* sibling = node->children[idx + 1];
+    int minKeys = (int)ceil((double)M / 2.0) - 1;
+    child->keys[child->count] = node->keys[idx];
+    for (int i = 0; i < sibling->count; ++i)
+      child->keys[child->count + 1 + i] = sibling->keys[i];
+    if (!child->leaf) {
+      for (int i = 0; i <= sibling->count; ++i)
+        child->children[child->count + 1 + i] = sibling->children[i];
+    }
+    child->count = child->count + 1 + sibling->count;
+    for (int i = idx + 1; i < node->count; ++i)
+      node->keys[i - 1] = node->keys[i];
+    for (int i = idx + 2; i <= node->count; ++i)
+      node->children[i - 1] = node->children[i];
+    node->count -= 1;
+
+    if (sibling) {
+      sibling->leaf = sibling->leaf;
+      for (int i = 0; i <= sibling->count; ++i) sibling->children[i] = nullptr;
+      if (sibling->keys) delete[] sibling->keys;
+      if (sibling->children) delete[] sibling->children;
+      delete sibling;
+      node->children[node->count + 1] = nullptr;
+    }
+  }
+
+  void removeFromNode(Node<TK>* node, TK key) {
+    if (!node) return;
+    int idx = findKey(node, key);
+    if (idx < node->count && node->keys[idx] == key) {
+      if (node->leaf) {
+        for (int i = idx + 1; i < node->count; ++i)
+          node->keys[i - 1] = node->keys[i];
+        node->count -= 1;
+        n -= 1;
+        return;
+      } else {
+        int minKeys = (int)ceil((double)M / 2.0) - 1;
+        Node<TK>* predChild = node->children[idx];
+        Node<TK>* succChild = node->children[idx + 1];
+        if (predChild->count >= minKeys + 1) {
+          TK pred = getPredecessor(node, idx);
+          node->keys[idx] = pred;
+          removeFromNode(predChild, pred);
+        } else if (succChild->count >= minKeys + 1) {
+          TK succ = getSuccessor(node, idx);
+          node->keys[idx] = succ;
+          removeFromNode(succChild, succ);
+        } else {
+          merge(node, idx);
+          removeFromNode(node->children[idx], key);
+        }
+        return;
+      }
+    } else {
+      if (node->leaf) {return;}
+      bool flag = (idx == node->count);
+      Node<TK>* child = node->children[idx];
+      int minKeys = (int)ceil((double)M / 2.0) - 1;
+      if (child->count < minKeys + 1) {
+        fill(node, idx);
+      }
+      if (flag && idx > node->count) {
+        removeFromNode(node->children[idx - 1], key);
+      } else {
+        removeFromNode(node->children[ (idx < node->count+1) ? idx : node->count ], key);
+      }
+    }
+  }
+
+  int computeHeight(Node<TK>* node) {
+    if (!node) return 0;
+    int h = 0;
+    Node<TK>* cur = node;
+    while (cur && !cur->leaf) {
+      h++;
+      cur = cur->children[0];
+    }
+    if (cur) return h + 1;
+    return 0;
+  }
+
+  bool checkNode(Node<TK>* node, int depth, int& leafLevel) {
+    if (!node) return true;
+    for (int i = 1; i < node->count; ++i) {
+      if (node->keys[i - 1] > node->keys[i]) return false;
+    }
+    if (!node->leaf) {
+      for (int i = 0; i <= node->count; ++i) {
+        if (!node->children[i]) return false;
+      }
+      for (int i = 0; i <= node->count; ++i) {
+        if (!checkNode(node->children[i], depth + 1, leafLevel)) return false;
+      }
+    } else {
+      if (leafLevel == -1) leafLevel = depth;
+      else if (leafLevel != depth) return false;
+    }
+    int minKeys = (int)ceil((double)M / 2.0) - 1;
+    if (node != root) {
+      if (node->count < minKeys || node->count > M - 1) return false;
+    } else {
+      if (node->count < 1 || node->count > M - 1) return false;
+    }
+    return true;
+  }
+
  public:
   BTree(int _M) : root(nullptr), M(_M) {}
 
