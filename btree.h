@@ -285,26 +285,186 @@ class BTree {
   }
 
  public:
-  BTree(int _M) : root(nullptr), M(_M) {}
+  BTree(int _M) : root(nullptr), M(_M), n(0) {}
 
-  bool search(TK key);//indica si se encuentra o no un elemento
-  void insert(TK key);//inserta un elemento
-  void remove(TK key);//elimina un elemento
-  int height();//altura del arbol. Considerar altura 0 para arbol vacio
-  string toString(const string& sep);  // recorrido inorder
-  vector<TK> rangeSearch(TK begin, TK end);
+  bool search(TK key){ //indica si se encuentra o no un elemento
+    return searchNode(root, key);
+  }
 
-  TK minKey();  // minimo valor de la llave en el arbol
-  TK maxKey();  // maximo valor de la llave en el arbol
-  void clear(); // eliminar todos lo elementos del arbol
-  int size(); // retorna el total de elementos insertados  
+  void insert(TK key){ //inserta un elemento
+    if (!root) {
+      root = new Node<TK>(M);
+      root->keys[0] = key;
+      root->count = 1;
+      root->leaf = true;
+      n = 1;
+      return;
+    }
+    if (search(key)) return;
+
+    if (root->count == M - 1) {
+      Node<TK>* s = new Node<TK>(M);
+      s->leaf = false;
+      s->children[0] = root;
+      root = s;
+      splitChild(s, 0);
+      int i = 0;
+      if (s->keys[0] < key) i = 1;
+      insertNonFull(s->children[i], key);
+    } else {
+      insertNonFull(root, key);
+    }
+  }
+
+  void remove(TK key){;//elimina un elemento
+  if (!root) return;
+    if (!search(key)) return;
+    removeFromNode(root, key);
+    if (root->count == 0) {
+      Node<TK>* old = root;
+      if (root->leaf) {
+        root = nullptr;
+        if (old) {
+          if (old->keys) delete[] old->keys;
+          if (old->children) delete[] old->children;
+          delete old;
+        }
+      } else {
+        root = root->children[0];
+        if (old->keys) delete[] old->keys;
+        if (old->children) delete[] old->children;
+        delete old;
+      }
+    }
+  }
+
+  int height(){;//altura del arbol. Considerar altura 0 para arbol vacio
+    if (!root) return 0;
+    int levels = 0;
+    Node<TK>* cur = root;
+    while (cur) {
+      levels++;
+      if (cur->leaf) break;
+      cur = cur->children[0];
+    }
+    return levels;
+  }
+
+  string toString(const string& sep){;  // recorrido inorder
+    vector<TK> out;
+    inorder(root, out);
+    ostringstream oss;
+    for (size_t i = 0; i < out.size(); ++i) {
+      oss << out[i];
+      if (i + 1 < out.size()) oss << sep;
+    }
+    return oss.str();
+  }
+
+  vector<TK> rangeSearch(TK begin, TK end){;
+    if (!root) return out;
+    function<void(Node<TK>*)> helper = [&](Node<TK>* node) {
+      if (!node) return;
+      int i = 0;
+      while (i < node->count && node->keys[i] < begin) {
+        if (!node->leaf) helper(node->children[i]);
+        i++;
+      }
+      for ( ; i < node->count && node->keys[i] <= end; ++i) {
+        if (!node->leaf) helper(node->children[i]);
+        if (node->keys[i] >= begin && node->keys[i] <= end) out.push_back(node->keys[i]);
+      }
+      if (!node->leaf) helper(node->children[i]);
+    };
+    helper(root);
+    return out;
+  }
+
+  TK minKey(){;  // minimo valor de la llave en el arbol
+    if (!root) throw runtime_error("Tree is empty");
+    Node<TK>* cur = root;
+    while (!cur->leaf) cur = cur->children[0];
+    return cur->keys[0];
+  }
+
+  TK maxKey(){;  // maximo valor de la llave en el arbol
+    if (!root) throw runtime_error("Tree is empty");
+    Node<TK>* cur = root;
+    while (!cur->leaf) cur = cur->children[cur->count];
+    return cur->keys[cur->count - 1];
+  }
+
+  void clear(){; // eliminar todos lo elementos del arbol
+    if (root) {
+      Node<TK>* tmp = root;
+      root = nullptr;
+      tmp->killSelf();
+    }
+    n = 0;
+    root = nullptr;
+  }
+
+  int size(){return n;} // retorna el total de elementos insertados  
   
-  // Construya un árbol B a partir de un vector de elementos ordenados
-  static BTree* build_from_ordered_vector(vector<T> elements);
-  // Verifique las propiedades de un árbol B
-  bool check_properties();
+  static BTree* build_from_ordered_vector(const vector<TK>& elements, int order) {
+    BTree* tree = new BTree(order);
+    if (elements.empty()) return tree;
+    int maxKeys = order - 1;
+    vector<Node<TK>*> currentLevel;
+    int i = 0;
+    while (i < (int)elements.size()) {
+      Node<TK>* leaf = new Node<TK>(order);
+      leaf->leaf = true;
+      int j = 0;
+      while (j < maxKeys && i < (int)elements.size()) {
+        leaf->keys[j++] = elements[i++];
+      }
+      leaf->count = j;
+      currentLevel.push_back(leaf);
+    }
+    if (currentLevel.size() == 1) {
+      tree->root = currentLevel[0];
+      tree->n = elements.size();
+      return tree;
+    }
+    while (currentLevel.size() > 1) {
+      vector<Node<TK>*> parentLevel;
+      int sz = currentLevel.size();
+      int idx = 0;
+      while (idx < sz) {
+        Node<TK>* parent = new Node<TK>(order);
+        parent->leaf = false;
+        int childCount = 0;
+        while (childCount < order && idx < sz) {
+          parent->children[childCount] = currentLevel[idx++];
+          childCount++;
+        }
+        for (int k = 0; k < childCount - 1; ++k) {
+          Node<TK>* left = parent->children[k];
+          parent->keys[k] = left->keys[left->count - 1];
+        }
+        parent->count = childCount - 1;
+        parentLevel.push_back(parent);
+      }
+      currentLevel.swap(parentLevel);
+    }
+    tree->root = currentLevel[0];
+    tree->n = elements.size();
+    return tree;
+  }
 
-  ~BTree();     // liberar memoria
+  static BTree* build_from_ordered_vector(const vector<TK>& elements) {
+    return build_from_ordered_vector(elements, 5);
+  }
+
+  // Verifique las propiedades de un árbol B
+  bool check_properties(){
+    if (!root) return true;
+    int leafLevel = -1;
+    return checkNode(root, 0, leafLevel);
+  }
+
+  ~BTree(){clear();} // liberar memoria
 };
 
-#endif
+#endif}
